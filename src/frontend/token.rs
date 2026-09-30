@@ -9,7 +9,6 @@ pub type LToken = Located<Token>;
 pub enum Token {
     BlockBegin,
     BlockEnd,
-    Quote,
     Conditional,
     Define,
     Word(WordId),
@@ -25,7 +24,6 @@ impl Token {
         match self {
             Token::BlockBegin => OwnedToken::BlockBegin,
             Token::BlockEnd => OwnedToken::BlockEnd,
-            Token::Quote => OwnedToken::Quote,
             Token::Conditional => OwnedToken::Conditional,
             Token::Define => OwnedToken::Define,
             Token::Word(id) => OwnedToken::Word(sesh.words.get(id).to_string()),

@@ -46,19 +46,9 @@ fn parse_op(
     match curr_op.val {
         Token::BlockBegin => return error!(UnexpectedOpeningBracket, curr_op.loc),
         Token::BlockEnd => return error!(UnexpectedClosingBracket, curr_op.loc),
-        Token::Quote => {
-            let next_op = lexer.next(sesh)?;
-            let Token::Word(word_id) = next_op.val else {
-                return error!(ExpectedWord, next_op.loc);
-            };
-            parse_get(env, word_id, parent_block, next_op.loc)?;
-        }
         Token::Define => parse_define(sesh, env, lexer)?,
         Token::Conditional => parse_conditional(sesh, env, lexer, parent_block, curr_op.loc)?,
-        Token::Word(word_id) => {
-            parse_get(env, word_id, parent_block, curr_op.loc)?;
-            parent_block.push(op!(Call, curr_op.loc));
-        }
+        Token::Word(word_id) => parse_word(env, word_id, parent_block, curr_op.loc)?,
         Token::Boolean(v) => parent_block.push(op!(PushBoolean(v), curr_op.loc)),
         Token::Integer(v) => parent_block.push(op!(PushInteger(v), curr_op.loc)),
         Token::String(v) => parent_block.push(op!(PushString(v), curr_op.loc)),
@@ -107,6 +97,20 @@ fn parse_conditional(
     Ok(())
 }
 
+fn parse_word(
+    env: &mut Environment,
+    word_id: WordId,
+    parent_block: &mut Block,
+    loc: Location,
+) -> Result<(), LParseError> {
+    match env.get(word_id).ok_or_else(|| ParseError::FunctionNotDefined.loc_copy(loc))? {
+        EnvironmentEntry::Block(id) => parent_block.push(op!(PushBlock(id), loc)),
+        EnvironmentEntry::Builtin(id) => parent_block.push(op!(PushBuiltin(id), loc)),
+    }
+    parent_block.push(op!(Call, loc));
+    Ok(())
+}
+
 fn parse_block(
     sesh: &mut Session,
     env: &mut Environment,
@@ -128,19 +132,6 @@ fn parse_block(
             _ => parse_op(sesh, env, lexer, parent)?,
         }
     }
-}
-
-fn parse_get(
-    env: &mut Environment,
-    word_id: WordId,
-    parent_block: &mut Block,
-    loc: Location,
-) -> Result<(), LParseError> {
-    match env.get(word_id).ok_or_else(|| ParseError::FunctionNotDefined.loc_copy(loc))? {
-        EnvironmentEntry::Block(id) => parent_block.push(op!(PushBlock(id), loc)),
-        EnvironmentEntry::Builtin(id) => parent_block.push(op!(PushBuiltin(id), loc)),
-    }
-    Ok(())
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -252,13 +243,8 @@ mod tests {
     }
 
     #[test]
-    fn test_def_and_call() {
+    fn test_def_and_get() {
         assert_eq!(parse_str_to_main("#def foo [1] foo"), block!(PushBlock(PushInteger(1)), Call));
-    }
-
-    #[test]
-    fn test_def_and_quote() {
-        assert_eq!(parse_str_to_main("#def foo [1] 'foo"), block!(PushBlock(PushInteger(1))));
     }
 
     #[test]

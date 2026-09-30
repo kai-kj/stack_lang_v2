@@ -68,7 +68,6 @@ impl<'s> Lexer<'s> {
         match self.curr_char() {
             Some('[') => event_adv!(self, sesh, BlockBegin, start_pos, start_pos + 1),
             Some(']') => event_adv!(self, sesh, BlockEnd, start_pos, start_pos + 1),
-            Some('\'') => event_adv!(self, sesh, Quote, start_pos, start_pos + 1),
             Some('"') => self.lex_string(sesh, start_pos),
             Some(_) => self.lex_other(sesh, start_pos),
             None => {
@@ -111,7 +110,7 @@ impl<'s> Lexer<'s> {
     }
 
     fn lex_other(&mut self, sesh: &mut Session, start_pos: usize) -> Result<LToken, LLexError> {
-        self.advance_while(|_, c| !c.is_whitespace() && !matches!(c, '[' | ']' | '\'' | '"'));
+        self.advance_while(|_, c| !c.is_whitespace() && !matches!(c, '[' | ']' | '"'));
         let chars = &self.source_text[start_pos..self.next_pos];
 
         if let Ok(number) = chars.parse::<i64>() {
@@ -221,11 +220,6 @@ mod tests {
     }
 
     #[test]
-    fn test_quote() {
-        assert_eq!(lex_str_to_owned_token_vec(r#"'foo"#), tokens!(Quote, Word("foo")));
-    }
-
-    #[test]
     fn test_define() {
         assert_eq!(
             lex_str_to_owned_token_vec(r#"#def x 42"#),
@@ -310,13 +304,12 @@ mod tests {
     #[test]
     fn test_no_whitespace() {
         assert_eq!(
-            lex_str_to_owned_token_vec(r#"[foo[bar'baz]+]"#),
+            lex_str_to_owned_token_vec(r#"[foo[bar baz]+]"#),
             tokens!(
                 BlockBegin,
                 Word("foo"),
                 BlockBegin,
                 Word("bar"),
-                Quote,
                 Word("baz"),
                 BlockEnd,
                 Word("+"),
