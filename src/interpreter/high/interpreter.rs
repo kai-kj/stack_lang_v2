@@ -1,12 +1,12 @@
 use {
     crate::{
         interpreter::{
-            error::{InterpretError, LInterpretError},
+            error::LInterpretError,
             high::operation::{HighOp, LHighOp},
             stack::Stack,
             value::Value,
         },
-        location::{LocatedExt, LocatedResultExt, Location},
+        location::LocatedResultExt,
         session::{BlockId, Session},
     },
     std::rc::Rc,
@@ -43,41 +43,26 @@ impl HighLevelInterpreter {
 
     fn interpret_op(&mut self, sesh: &Session, op: &LHighOp) -> Result<(), LInterpretError> {
         match op.val {
-            HighOp::Call => {
-                let body = self.stack.pop().err_loc_copy(op.loc)?;
-                self.call(sesh, body, op.loc)?;
-            }
-            HighOp::CallConditional => {
-                let f_case = self.stack.pop().err_loc_copy(op.loc)?;
-                let t_case = self.stack.pop().err_loc_copy(op.loc)?;
-                let cond = self.stack.pop().err_loc_copy(op.loc)?;
-                if cond.is_truthy() {
-                    self.call(sesh, t_case, op.loc)?;
-                } else {
-                    self.call(sesh, f_case, op.loc)?;
-                }
-            }
             HighOp::PushBoolean(value) => self.stack.push(Value::Boolean(value)),
             HighOp::PushInteger(value) => self.stack.push(Value::Integer(value)),
             HighOp::PushString(value) => {
                 let value = sesh.strings.get(value);
                 self.stack.push(Value::String(Rc::from(value.as_str())))
             }
-            HighOp::PushBlock(id) => self.stack.push(Value::Block(id)),
-            HighOp::PushBuiltin(id) => self.stack.push(Value::Builtin(id)),
-        }
-
-        Ok(())
-    }
-
-    fn call(&mut self, sesh: &Session, value: Value, loc: Location) -> Result<(), LInterpretError> {
-        match value {
-            Value::Block(id) => self.interpret_block(sesh, id)?,
-            Value::Builtin(id) => {
-                sesh.builtins.get(id).call(&mut self.stack).err_loc_copy(loc)?;
+            HighOp::CallBlock(id) => self.interpret_block(sesh, id)?,
+            HighOp::CallBuiltin(id) => {
+                sesh.builtins.get(id).call(&mut self.stack).err_loc_copy(op.loc)?
             }
-            _ => return error!(ValueIsNotCallable, loc),
+            HighOp::Conditional(id_t, id_f) => {
+                let cond = self.stack.pop().err_loc_copy(op.loc)?;
+                if cond.is_truthy() {
+                    self.interpret_block(sesh, id_t)?;
+                } else {
+                    self.interpret_block(sesh, id_f)?;
+                }
+            }
         }
+
         Ok(())
     }
 }

@@ -12,8 +12,8 @@ use {
 };
 
 macro_rules! op {
-    ($kind:ident $(($value:expr))?, $loc:expr) => {
-        HighOp::$kind $(($value))?.loc_copy($loc)
+    ($kind:ident $(($($value:expr),* $(,)?))?, $loc:expr) => {
+        HighOp::$kind $(($($value),*))?.loc_copy($loc)
     };
 }
 
@@ -83,17 +83,13 @@ fn parse_conditional(
     parent: &mut Block,
     parent_loc: Location,
 ) -> Result<(), LParseError> {
-    let mut true_env = env.child();
-    let mut true_block = Block::new();
-    let true_loc = parse_block(sesh, &mut true_env, lexer, &mut true_block)?;
-    parent.push(op!(PushBlock(sesh.blocks.push(true_block)), true_loc));
+    let mut block_t = Block::new();
+    parse_block(sesh, &mut env.child(), lexer, &mut block_t)?;
 
-    let mut false_env = env.child();
-    let mut false_block = Block::new();
-    let false_loc = parse_block(sesh, &mut false_env, lexer, &mut false_block)?;
-    parent.push(op!(PushBlock(sesh.blocks.push(false_block)), false_loc));
+    let mut block_f = Block::new();
+    parse_block(sesh, &mut env.child(), lexer, &mut block_f)?;
 
-    parent.push(op!(CallConditional, parent_loc));
+    parent.push(op!(Conditional(sesh.blocks.push(block_t), sesh.blocks.push(block_f)), parent_loc));
     Ok(())
 }
 
@@ -104,10 +100,9 @@ fn parse_word(
     loc: Location,
 ) -> Result<(), LParseError> {
     match env.get(word_id).ok_or_else(|| ParseError::FunctionNotDefined.loc_copy(loc))? {
-        EnvironmentEntry::Block(id) => parent_block.push(op!(PushBlock(id), loc)),
-        EnvironmentEntry::Builtin(id) => parent_block.push(op!(PushBuiltin(id), loc)),
+        EnvironmentEntry::Block(id) => parent_block.push(op!(CallBlock(id), loc)),
+        EnvironmentEntry::Builtin(id) => parent_block.push(op!(CallBuiltin(id), loc)),
     }
-    parent_block.push(op!(Call, loc));
     Ok(())
 }
 
@@ -116,7 +111,7 @@ fn parse_block(
     env: &mut Environment,
     lexer: &mut Lexer,
     parent: &mut Block,
-) -> Result<Location, LParseError> {
+) -> Result<(), LParseError> {
     let start_op = lexer.next(sesh)?;
     if start_op.val != Token::BlockBegin {
         return error!(ExpectedOpeningBracket, start_op.loc);
@@ -126,7 +121,7 @@ fn parse_block(
         match next_op.val {
             Token::BlockEnd => {
                 lexer.next(sesh)?;
-                return Ok(Location::between(start_op.loc, next_op.loc));
+                return Ok(());
             }
             Token::FileEnd => return error!(UnexpectedEndOfFile, next_op.loc),
             _ => parse_op(sesh, env, lexer, parent)?,
@@ -206,8 +201,12 @@ mod tests {
             Ok(vec![$(block!(@op $kind $(($($args)*))?)),*])
         };
 
-        (@op PushBlock ($($kind:ident $(($($args:tt)*))?),* $(,)?)) => {
-            OwnedHighOp::PushBlock(vec![$(block!(@op $kind $(($($args)*))?)),*])
+        (@op CallBlock ($($kind:ident $(($($args:tt)*))?),* $(,)?)) => {
+            OwnedHighOp::CallBlock(vec![$(block!(@op $kind $(($($args)*))?)),*])
+        };
+
+         (@op Conditional ($($kind_t:ident $(($($args_t:tt)*))?),* $(,)?; $($kind_f:ident $(($($args_f:tt)*))?),* $(,)?)) => {
+            OwnedHighOp::Conditional(vec![$(block!(@op $kind_t $(($($args_t)*))?)),*], vec![$(block!(@op $kind_f $(($($args_f)*))?)),*])
         };
 
         (@op $kind:ident $(($value:expr))?) => {OwnedHighOp::$kind $(($value.into()))?};
@@ -244,7 +243,7 @@ mod tests {
 
     #[test]
     fn test_def_and_get() {
-        assert_eq!(parse_str_to_main("#def foo [1] foo"), block!(PushBlock(PushInteger(1)), Call));
+        assert_eq!(parse_str_to_main("#def foo [1] foo"), block!(CallBlock(PushInteger(1))));
     }
 
     #[test]
@@ -253,9 +252,7 @@ mod tests {
             parse_str_to_main("true #cond [1] [2]"),
             block!(
                 PushBoolean(true),
-                PushBlock(PushInteger(1)),
-                PushBlock(PushInteger(2)),
-                CallConditional
+                Conditional(PushInteger(1); PushInteger(2))
             )
         );
     }
